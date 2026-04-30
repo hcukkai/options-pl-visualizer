@@ -223,23 +223,31 @@ function draw() {
   ctx.beginPath(); ctx.moveTo(pad.left, y0); ctx.lineTo(pad.left + cw, y0); ctx.stroke();
   ctx.setLineDash([]);
   
-  // P&L line
+  // Build fill path
   ctx.beginPath();
-  ctx.strokeStyle = strategy === 'long' ? '#22c55e' : '#ef4444';
-  ctx.lineWidth = 2.5;
   for (let p = minPrice; p <= maxPrice; p += 0.5) {
     const x = xScale(p), y = yScale(pnlAt(p));
     if (p === minPrice) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
-  ctx.stroke();
-  
-  // Fill
-  ctx.globalAlpha = 0.15;
-  ctx.fillStyle = strategy === 'long' ? '#22c55e' : '#ef4444';
   ctx.lineTo(xScale(maxPrice), y0);
   ctx.lineTo(xScale(minPrice), y0);
-  ctx.closePath(); ctx.fill();
+  ctx.closePath();
+  
+  // Fill area under curve
+  ctx.globalAlpha = 0.15;
+  ctx.fillStyle = strategy === 'long' ? '#22c55e' : '#ef4444';
+  ctx.fill();
   ctx.globalAlpha = 1;
+  
+  // Stroke P&L line on top
+  ctx.beginPath();
+  for (let p = minPrice; p <= maxPrice; p += 0.5) {
+    const x = xScale(p), y = yScale(pnlAt(p));
+    if (p === minPrice) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.strokeStyle = strategy === 'long' ? '#22c55e' : '#ef4444';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
   
   // Breakeven line
   const be = type === 'call' ? (strategy === 'long' ? strike + premium : strike + premium) : (strategy === 'long' ? strike - premium : strike - premium);
@@ -264,7 +272,7 @@ function draw() {
   
   document.getElementById('stats').innerHTML = `
     <div class="stat-card"><div class="stat-label">Max Profit</div><div class="stat-value ${maxProfit > 0 ? 'green' : 'yellow'}">${maxProfit === Infinity ? 'Unlimited' : '$' + maxProfit.toLocaleString()}</div></div>
-    <div class="stat-card"><div class="stat-label">Max Loss</div><div class="stat-value red">${maxLoss === -Infinity ? 'Unlimited' : '$' + Math.abs(maxLoss).toLocaleString()}</div></div>
+    <div class="stat-card"><div class="stat-label">Max Loss</div><div class="stat-value red">${!isFinite(maxLoss) ? 'Unlimited' : '$' + Math.abs(maxLoss).toLocaleString()}</div></div>
     <div class="stat-card"><div class="stat-label">Breakeven</div><div class="stat-value yellow">$${be.toFixed(2)}</div></div>
     <div class="stat-card"><div class="stat-label">Premium Paid</div><div class="stat-value">$${(premium * mult).toLocaleString()}</div></div>
   `;
