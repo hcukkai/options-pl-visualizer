@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Options P&L Visualizer</title>
+<title>Options P&L Visualizer Pro</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -14,20 +14,26 @@ body {
   padding: 20px;
 }
 .container {
-  max-width: 900px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 h1 {
   font-size: 1.5rem;
   color: #fbbf24;
   text-align: center;
+  margin-bottom: 8px;
+}
+.subtitle {
+  text-align: center;
+  color: #6b7280;
+  font-size: 0.85rem;
   margin-bottom: 24px;
 }
 .controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 20px;
   background: #111827;
   padding: 20px;
   border-radius: 12px;
@@ -60,6 +66,33 @@ button {
   cursor: pointer;
 }
 button:hover { opacity: 0.9; }
+.greeks {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.greek-card {
+  background: #111827;
+  border-radius: 10px;
+  padding: 14px 10px;
+  border: 1px solid #1f2937;
+  text-align: center;
+}
+.greek-label {
+  font-size: 0.7rem;
+  color: #9ca3af;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.greek-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #e0e6ed;
+}
+.greek-value.pos { color: #22c55e; }
+.greek-value.neg { color: #ef4444; }
 .chart-container {
   background: #111827;
   border-radius: 12px;
@@ -67,10 +100,10 @@ button:hover { opacity: 0.9; }
   border: 1px solid #1f2937;
   margin-bottom: 20px;
 }
-canvas { width: 100%; height: 350px; }
+canvas { width: 100%; height: 380px; }
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
 }
 .stat-card {
@@ -86,7 +119,7 @@ canvas { width: 100%; height: 350px; }
   margin-bottom: 6px;
 }
 .stat-value {
-  font-size: 1.25rem;
+  font-size: 1.1rem;
   font-weight: 700;
 }
 .stat-value.green { color: #22c55e; }
@@ -98,11 +131,29 @@ canvas { width: 100%; height: 350px; }
   font-size: 0.75rem;
   color: #6b7280;
 }
+.note {
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+  font-size: 0.8rem;
+  color: #9ca3af;
+}
+@media (max-width: 600px) {
+  .greeks { grid-template-columns: repeat(3, 1fr); }
+}
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>Options P&L Visualizer</h1>
+  <h1>Options P&L Visualizer Pro</h1>
+  <p class="subtitle">Black-Scholes pricing with Greeks and multi-time P&L curves</p>
+  
+  <div class="note">
+    Enter your own implied volatility (IV%) — or use the rule of thumb: low vol stocks ~20%, meme stocks ~80%, crypto ~60-100%.
+    No ticker needed; IV is what actually matters.
+  </div>
   
   <div class="controls">
     <div class="control-group">
@@ -120,16 +171,32 @@ canvas { width: 100%; height: 350px; }
       </select>
     </div>
     <div class="control-group">
+      <label>Underlying Price ($)</label>
+      <input type="number" id="underlying" value="100" step="0.01">
+    </div>
+    <div class="control-group">
       <label>Strike Price ($)</label>
       <input type="number" id="strike" value="100">
     </div>
     <div class="control-group">
-      <label>Premium ($)</label>
+      <label>Premium Paid/Received ($)</label>
       <input type="number" id="premium" value="5" step="0.01">
     </div>
     <div class="control-group">
+      <label>Days to Expiration</label>
+      <input type="number" id="dte" value="30" min="1">
+    </div>
+    <div class="control-group">
+      <label>Implied Volatility (%)</label>
+      <input type="number" id="iv" value="30" step="1" min="1" max="500">
+    </div>
+    <div class="control-group">
+      <label>Risk-Free Rate (%)</label>
+      <input type="number" id="rate" value="4.5" step="0.1">
+    </div>
+    <div class="control-group">
       <label>Contracts</label>
-      <input type="number" id="contracts" value="1">
+      <input type="number" id="contracts" value="1" min="1">
     </div>
     <div class="control-group">
       <label>Price Range ($)</label>
@@ -138,23 +205,83 @@ canvas { width: 100%; height: 350px; }
     <button onclick="draw()">Update Chart</button>
   </div>
   
+  <div class="greeks" id="greeks"></div>
+  
   <div class="chart-container">
     <canvas id="chart"></canvas>
   </div>
   
   <div class="stats" id="stats"></div>
   
-  <div class="footer">Built for options traders. Visualize risk before you trade.</div>
+  <div class="footer">Built for options traders. Black-Scholes model. No data leaves your browser.</div>
 </div>
 
 <script>
+// Normal CDF approximation (Abramowitz & Stegun)
+function normCDF(x) {
+  const a1 =  0.254829592, a2 = -0.284496736, a3 =  1.421413741;
+  const a4 = -1.453152027, a5 =  1.061405429;
+  const p  =  0.3275911;
+  const sign = x < 0 ? -1 : 1;
+  x = Math.abs(x) / Math.sqrt(2);
+  const t = 1 / (1 + p * x);
+  const y = 1 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
+  return 0.5 * (1 + sign * y);
+}
+
+// Normal PDF
+function normPDF(x) {
+  return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+}
+
+// Black-Scholes
+function blackScholes(S, K, T, r, sigma, type) {
+  const d1 = (Math.log(S / K) + (r + sigma * sigma / 2) * T) / (sigma * Math.sqrt(T));
+  const d2 = d1 - sigma * Math.sqrt(T);
+  const Nd1 = normCDF(d1);
+  const Nd2 = normCDF(d2);
+  const Nmd1 = normCDF(-d1);
+  const Nmd2 = normCDF(-d2);
+  
+  let price, delta, gamma, theta, vega, rho;
+  
+  if (type === 'call') {
+    price = S * Nd1 - K * Math.exp(-r * T) * Nd2;
+    delta = Nd1;
+    rho = K * T * Math.exp(-r * T) * Nd2 / 100;
+  } else {
+    price = K * Math.exp(-r * T) * Nmd2 - S * Nmd1;
+    delta = Nd1 - 1;
+    rho = -K * T * Math.exp(-r * T) * Nmd2 / 100;
+  }
+  
+  gamma = normPDF(d1) / (S * sigma * Math.sqrt(T));
+  theta = -(S * normPDF(d1) * sigma) / (2 * Math.sqrt(T));
+  theta -= r * K * Math.exp(-r * T) * (type === 'call' ? Nd2 : -Nmd2);
+  theta /= 365;
+  vega = S * normPDF(d1) * Math.sqrt(T) / 100;
+  
+  return { price, delta, gamma, theta, vega, rho };
+}
+
 function draw() {
   const type = document.getElementById('type').value;
   const strategy = document.getElementById('strategy').value;
+  const underlying = parseFloat(document.getElementById('underlying').value);
   const strike = parseFloat(document.getElementById('strike').value);
   const premium = parseFloat(document.getElementById('premium').value);
+  const dte = parseInt(document.getElementById('dte').value);
+  const iv = parseFloat(document.getElementById('iv').value) / 100;
+  const rate = parseFloat(document.getElementById('rate').value) / 100;
   const contracts = parseInt(document.getElementById('contracts').value);
   const range = parseFloat(document.getElementById('range').value);
+  
+  const mult = contracts * 100;
+  const T = dte / 365;
+  
+  // Theoretical price at current inputs
+  const bs = blackScholes(underlying, strike, T, rate, iv, type);
+  const theoPrice = bs.price;
   
   const canvas = document.getElementById('chart');
   const ctx = canvas.getContext('2d');
@@ -165,31 +292,39 @@ function draw() {
   ctx.scale(dpr, dpr);
   
   const w = rect.width, h = rect.height;
-  const pad = { top: 20, right: 20, bottom: 40, left: 50 };
+  const pad = { top: 20, right: 20, bottom: 40, left: 55 };
   const cw = w - pad.left - pad.right;
   const ch = h - pad.top - pad.bottom;
   
-  const minPrice = strike - range;
+  const minPrice = Math.max(0.01, strike - range);
   const maxPrice = strike + range;
-  const mult = contracts * 100;
   
-  const pnlAt = (price) => {
+  // P&L functions for different times
+  const pnlAtExpiry = (price) => {
     let intrinsic = 0;
     if (type === 'call') intrinsic = Math.max(0, price - strike);
     else intrinsic = Math.max(0, strike - price);
-    
     if (strategy === 'long') return (intrinsic - premium) * mult;
     else return (premium - intrinsic) * mult;
   };
   
+  const pnlAtTime = (price, timeLeft) => {
+    if (timeLeft <= 0) return pnlAtExpiry(price);
+    const bsNow = blackScholes(price, strike, timeLeft, rate, iv, type);
+    if (strategy === 'long') return (bsNow.price - premium) * mult;
+    else return (premium - bsNow.price) * mult;
+  };
+  
   let maxPnL = -Infinity, minPnL = Infinity;
-  for (let p = minPrice; p <= maxPrice; p += 0.5) {
-    const v = pnlAt(p);
-    maxPnL = Math.max(maxPnL, v);
-    minPnL = Math.min(minPnL, v);
+  for (let p = minPrice; p <= maxPrice; p += (maxPrice - minPrice) / 120) {
+    const v1 = pnlAtTime(p, T);
+    const v2 = pnlAtTime(p, T * 0.5);
+    const v3 = pnlAtExpiry(p);
+    maxPnL = Math.max(maxPnL, v1, v2, v3);
+    minPnL = Math.min(minPnL, v1, v2, v3);
   }
   
-  const padding = (maxPnL - minPnL) * 0.1;
+  const padding = (maxPnL - minPnL) * 0.08;
   maxPnL += padding;
   minPnL -= padding;
   if (maxPnL === minPnL) { maxPnL += 10; minPnL -= 10; }
@@ -223,58 +358,92 @@ function draw() {
   ctx.beginPath(); ctx.moveTo(pad.left, y0); ctx.lineTo(pad.left + cw, y0); ctx.stroke();
   ctx.setLineDash([]);
   
-  // Build fill path
+  // Draw P&L curves: today, half-DTE, expiration
+  const curves = [
+    { time: T, color: '#3b82f6', label: 'Today', width: 2 },
+    { time: T * 0.5, color: '#a855f7', label: 'Half DTE', width: 1.5 },
+    { time: 0, color: strategy === 'long' ? '#22c55e' : '#ef4444', label: 'Expiration', width: 2.5 }
+  ];
+  
+  // Fill area for expiration only
+  const expiryCurve = curves[2];
   ctx.beginPath();
-  for (let p = minPrice; p <= maxPrice; p += 0.5) {
-    const x = xScale(p), y = yScale(pnlAt(p));
+  for (let p = minPrice; p <= maxPrice; p += (maxPrice - minPrice) / 120) {
+    const x = xScale(p), y = yScale(pnlAtTime(p, expiryCurve.time));
     if (p === minPrice) ctx.moveTo(x, y); else ctx.lineTo(x, y);
   }
   ctx.lineTo(xScale(maxPrice), y0);
   ctx.lineTo(xScale(minPrice), y0);
   ctx.closePath();
-  
-  // Fill area under curve
-  ctx.globalAlpha = 0.15;
-  ctx.fillStyle = strategy === 'long' ? '#22c55e' : '#ef4444';
+  ctx.globalAlpha = 0.1;
+  ctx.fillStyle = expiryCurve.color;
   ctx.fill();
   ctx.globalAlpha = 1;
   
-  // Stroke P&L line on top
-  ctx.beginPath();
-  for (let p = minPrice; p <= maxPrice; p += 0.5) {
-    const x = xScale(p), y = yScale(pnlAt(p));
-    if (p === minPrice) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  // Stroke all curves
+  for (const curve of curves) {
+    ctx.beginPath();
+    for (let p = minPrice; p <= maxPrice; p += (maxPrice - minPrice) / 120) {
+      const x = xScale(p), y = yScale(pnlAtTime(p, curve.time));
+      if (p === minPrice) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = curve.color;
+    ctx.lineWidth = curve.width;
+    ctx.stroke();
   }
-  ctx.strokeStyle = strategy === 'long' ? '#22c55e' : '#ef4444';
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
   
-  // Breakeven line
-  const be = type === 'call' ? (strategy === 'long' ? strike + premium : strike + premium) : (strategy === 'long' ? strike - premium : strike - premium);
-  if (be >= minPrice && be <= maxPrice) {
-    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 2;
-    const x = xScale(be);
+  // Current price line
+  if (underlying >= minPrice && underlying <= maxPrice) {
+    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5; ctx.setLineDash([6, 4]);
+    const x = xScale(underlying);
     ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + ch); ctx.stroke();
+    ctx.setLineDash([]);
     ctx.fillStyle = '#fbbf24'; ctx.font = 'bold 11px sans-serif';
-    ctx.textAlign = 'center'; ctx.fillText('BE $' + be, x, pad.top - 6);
+    ctx.textAlign = 'center'; ctx.fillText('Spot $' + underlying, x, pad.top - 6);
   }
   
   // Strike line
-  ctx.strokeStyle = '#3b82f6'; ctx.lineWidth = 1.5;
+  ctx.strokeStyle = '#6b7280'; ctx.lineWidth = 1;
   const xs = xScale(strike);
   ctx.beginPath(); ctx.moveTo(xs, pad.top); ctx.lineTo(xs, pad.top + ch); ctx.stroke();
-  ctx.fillStyle = '#3b82f6'; ctx.font = 'bold 11px sans-serif';
+  ctx.fillStyle = '#6b7280'; ctx.font = 'bold 11px sans-serif';
   ctx.textAlign = 'center'; ctx.fillText('Strike', xs, pad.top + ch + 32);
   
+  // Legend
+  ctx.font = '12px sans-serif';
+  let lx = pad.left + 10;
+  for (const curve of curves) {
+    ctx.fillStyle = curve.color;
+    ctx.fillRect(lx, pad.top + 10, 12, 3);
+    ctx.fillStyle = '#9ca3af';
+    ctx.textAlign = 'left';
+    ctx.fillText(curve.label, lx + 18, pad.top + 14);
+    lx += 80;
+  }
+  
+  // Greeks display
+  const sign = strategy === 'long' ? 1 : -1;
+  document.getElementById('greeks').innerHTML = `
+    <div class="greek-card"><div class="greek-label">Delta</div><div class="greek-value ${(bs.delta * sign) >= 0 ? 'pos' : 'neg'}">${(bs.delta * sign).toFixed(3)}</div></div>
+    <div class="greek-card"><div class="greek-label">Gamma</div><div class="greek-value ${bs.gamma >= 0 ? 'pos' : 'neg'}">${(bs.gamma * (strategy === 'long' ? 1 : -1)).toFixed(4)}</div></div>
+    <div class="greek-card"><div class="greek-label">Theta</div><div class="greek-value ${(bs.theta * sign) >= 0 ? 'pos' : 'neg'}">${(bs.theta * sign).toFixed(2)}</div></div>
+    <div class="greek-card"><div class="greek-label">Vega</div><div class="greek-value ${(bs.vega * sign) >= 0 ? 'pos' : 'neg'}">${(bs.vega * sign).toFixed(2)}</div></div>
+    <div class="greek-card"><div class="greek-label">Rho</div><div class="greek-value ${(bs.rho * sign) >= 0 ? 'pos' : 'neg'}">${(bs.rho * sign).toFixed(2)}</div></div>
+  `;
+  
   // Stats
+  const be = type === 'call' ? strike + premium : strike - premium;
   const maxProfit = strategy === 'long' ? (type === 'call' ? Infinity : (strike - minPrice - premium) * mult) : premium * mult;
   const maxLoss = strategy === 'long' ? -premium * mult : (type === 'call' ? Infinity : -(strike - minPrice - premium) * mult);
+  const theoPnL = (theoPrice - premium) * mult * sign;
   
   document.getElementById('stats').innerHTML = `
-    <div class="stat-card"><div class="stat-label">Max Profit</div><div class="stat-value ${maxProfit > 0 ? 'green' : 'yellow'}">${maxProfit === Infinity ? 'Unlimited' : '$' + maxProfit.toLocaleString()}</div></div>
+    <div class="stat-card"><div class="stat-label">Theo Price</div><div class="stat-value yellow">$${theoPrice.toFixed(2)}</div></div>
+    <div class="stat-card"><div class="stat-label">Max Profit</div><div class="stat-value green">${!isFinite(maxProfit) ? 'Unlimited' : '$' + maxProfit.toLocaleString()}</div></div>
     <div class="stat-card"><div class="stat-label">Max Loss</div><div class="stat-value red">${!isFinite(maxLoss) ? 'Unlimited' : '$' + Math.abs(maxLoss).toLocaleString()}</div></div>
     <div class="stat-card"><div class="stat-label">Breakeven</div><div class="stat-value yellow">$${be.toFixed(2)}</div></div>
-    <div class="stat-card"><div class="stat-label">Premium Paid</div><div class="stat-value">$${(premium * mult).toLocaleString()}</div></div>
+    <div class="stat-card"><div class="stat-label">PnL @ Spot</div><div class="stat-value ${theoPnL >= 0 ? 'green' : 'red'}">$${theoPnL.toFixed(0)}</div></div>
+    <div class="stat-card"><div class="stat-label">Total Premium</div><div class="stat-value">$${(premium * mult).toLocaleString()}</div></div>
   `;
 }
 
